@@ -190,7 +190,7 @@ def is_character_online_tibiadata(name: str, world: Optional[str] = None, timeou
     except Exception:
         return None
 
-def is_character_online_tibia_com(name: str, world: str, timeout: int = 12) -> Optional[bool]:
+def is_character_online_tibia_com(name: str, world: str, timeout: int = 12, *, light_only: bool = False) -> Optional[bool]:
     """Fallback extra usando o site oficial (tibia.com) para checar se o char está online.
 
     Importante: NÃO usamos a página do world porque é paginada (pode dar falso OFFLINE).
@@ -214,6 +214,9 @@ def is_character_online_tibia_com(name: str, world: str, timeout: int = 12) -> O
         except Exception:
             pass
 
+        if light_only:
+            return None
+
         soup = BeautifulSoup(html, "html.parser")
         # A página do char tem uma tabela com linhas "Label" / "Value".
         for tr in soup.find_all("tr"):
@@ -235,7 +238,7 @@ def is_character_online_tibia_com(name: str, world: str, timeout: int = 12) -> O
         return None
 
 
-def fetch_guildstats_deaths_xp(name: str, timeout: int = 12) -> List[str]:
+def fetch_guildstats_deaths_xp(name: str, timeout: int = 12, *, light_only: bool = False) -> List[str]:
     """Retorna a lista de 'Exp lost' (strings) do GuildStats, em ordem (mais recente primeiro).
 
     Observação: é um complemento (fansite). Se falhar, devolve lista vazia.
@@ -291,6 +294,9 @@ def fetch_guildstats_deaths_xp(name: str, timeout: int = 12) -> List[str]:
                     return vals
         except Exception:
             pass
+
+        if light_only:
+            return []
 
         soup = BeautifulSoup(html, "html.parser")
 
@@ -361,7 +367,7 @@ def fetch_guildstats_deaths_xp(name: str, timeout: int = 12) -> List[str]:
         return []
 
 
-def fetch_guildstats_exp_changes(name: str, timeout: int = 12) -> List[Dict[str, Any]]:
+def fetch_guildstats_exp_changes(name: str, timeout: int = 12, *, light_only: bool = False) -> List[Dict[str, Any]]:
     """Retorna o histórico (diário) de experiência do GuildStats (tab=9).
 
     Saída (ordem conforme a tabela):
@@ -468,8 +474,13 @@ def fetch_guildstats_exp_changes(name: str, timeout: int = 12) -> List[Dict[str,
 
             if len(fast_rows) >= 3:
                 return fast_rows
+            if light_only and fast_rows:
+                return fast_rows
         except Exception:
             pass
+
+        if light_only:
+            return []
 
         soup = BeautifulSoup(html, "html.parser")
 
