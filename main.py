@@ -2187,18 +2187,56 @@ class TibiaToolsApp(MDApp):
                         it.add_widget(IconLeftWidget(icon="chart-line"))
                         xlist.add_widget(it)
                     else:
-                        for r in rows[:7]:
-                            ds = str(r.get("date") or "").strip()
-                            ev = r.get("exp_change_int")
-                            try:
-                                ev_i = int(ev)
-                            except Exception:
-                                continue
-                            sec = f"{fmt_pt(ev_i)} XP"
-                            icon = "trending-up" if ev_i >= 0 else "trending-down"
-                            item = TwoLineIconListItem(text=ds, secondary_text=sec)
-                            item.add_widget(IconLeftWidget(icon=icon))
-                            xlist.add_widget(item)
+                        # Mostra sempre os últimos 7 dias (consecutivos). Se o GuildStats não listar um dia,
+                        # exibimos 0 para ficar claro que não houve ganho/perda (ou que não foi trackeado).
+                        try:
+                            # Determina a data mais recente do histórico.
+                            ref_dates = []
+                            for rr in rows:
+                                ds0 = str(rr.get("date") or "").strip()
+                                if not ds0:
+                                    continue
+                                try:
+                                    ref_dates.append(datetime.fromisoformat(ds0).date())
+                                except Exception:
+                                    continue
+                            ref = max(ref_dates) if ref_dates else datetime.utcnow().date()
+
+                            day_map = {}
+                            for rr in rows:
+                                ds0 = str(rr.get("date") or "").strip()
+                                if not ds0:
+                                    continue
+                                try:
+                                    ev_i = int(rr.get("exp_change_int") or 0)
+                                except Exception:
+                                    continue
+                                # Se houver duplicata por data, soma (mais seguro).
+                                day_map[ds0] = int(day_map.get(ds0, 0)) + int(ev_i)
+
+                            for i in range(0, 7):
+                                d = ref - timedelta(days=i)
+                                ds = d.isoformat()
+                                ev_i = int(day_map.get(ds, 0))
+                                sec = f"{fmt_pt(ev_i)} XP"
+                                icon = "trending-up" if ev_i >= 0 else "trending-down"
+                                item = TwoLineIconListItem(text=ds, secondary_text=sec)
+                                item.add_widget(IconLeftWidget(icon=icon))
+                                xlist.add_widget(item)
+                        except Exception:
+                            # fallback: mostra os 7 primeiros registros como antes
+                            for r in rows[:7]:
+                                ds = str(r.get("date") or "").strip()
+                                ev = r.get("exp_change_int")
+                                try:
+                                    ev_i = int(ev)
+                                except Exception:
+                                    continue
+                                sec = f"{fmt_pt(ev_i)} XP"
+                                icon = "trending-up" if ev_i >= 0 else "trending-down"
+                                item = TwoLineIconListItem(text=ds, secondary_text=sec)
+                                item.add_widget(IconLeftWidget(icon=icon))
+                                xlist.add_widget(item)
                 except Exception:
                     pass
 
