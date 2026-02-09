@@ -4096,67 +4096,37 @@ class TibiaToolsApp(MDApp):
     # --------------------
     # Training (Exercise)
     # --------------------
-    def _menu_fix_position(self, menu):
-        """Tenta manter dropdown dentro da tela (KivyMD 1.2)."""
-        try:
-            # Se disponível, força crescimento horizontal para a esquerda.
-            menu.hor_growth = "left"
-        except Exception:
-            pass
-        try:
-            menu.ver_growth = "down"
-        except Exception:
-            pass
-        try:
-            # Margem para evitar colar na borda.
-            menu.border_margin = dp(16)
-        except Exception:
-            pass
-
     def _ensure_training_menus(self):
         scr = self.root.get_screen("training")
-
-        # ⚠️ Em telas menores, ancorar o menu no botão da direita (menu-down)
-        # pode fazer o dropdown "sair" da tela. Para evitar isso, usamos o
-        # próprio campo de texto como caller (mais à esquerda).
-        skill_caller = scr.ids.get("skill_field") or scr.ids.get("skill_drop")
-        voc_caller = scr.ids.get("voc_field") or scr.ids.get("voc_drop")
-        weapon_caller = scr.ids.get("weapon_field") or scr.ids.get("weapon_drop")
 
         if self._menu_skill is None:
             skills = ["Sword", "Axe", "Club", "Distance", "Fist Fighting", "Shielding", "Magic Level"]
             self._menu_skill = MDDropdownMenu(
-                caller=skill_caller,
+                caller=scr.ids.skill_drop,
                 items=[{"text": s, "on_release": (lambda x=s: self._set_training_skill(x))} for s in skills],
                 width_mult=4,
                 max_height=dp(320),
-                position="auto",
             )
-            self._menu_fix_position(self._menu_skill)
 
         if 'voc_drop' in scr.ids and 'voc_field' in scr.ids:
             if self._menu_vocation is None:
                 vocs = ["Knight", "Paladin", "Sorcerer", "Druid", "Monk", "None"]
                 self._menu_vocation = MDDropdownMenu(
-                    caller=voc_caller,
+                    caller=scr.ids.voc_drop,
                     items=[{"text": v, "on_release": (lambda x=v: self._set_training_voc(x))} for v in vocs],
                     width_mult=4,
                     max_height=dp(260),
-                    position="auto",
                 )
-                self._menu_fix_position(self._menu_vocation)
 
         if 'weapon_drop' in scr.ids and 'weapon_field' in scr.ids:
             if self._menu_weapon is None:
                 weapons = ["Standard (500)", "Enhanced (1800)", "Lasting (14400)"]
                 self._menu_weapon = MDDropdownMenu(
-                    caller=weapon_caller,
+                    caller=scr.ids.weapon_drop,
                     items=[{"text": w, "on_release": (lambda x=w: self._set_training_weapon(x))} for w in weapons],
                     width_mult=4,
                     max_height=dp(260),
-                    position="auto",
                 )
-                self._menu_fix_position(self._menu_weapon)
 
     def _set_training_skill(self, skill: str):
         scr = self.root.get_screen("training")
