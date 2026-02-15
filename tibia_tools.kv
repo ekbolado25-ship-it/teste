@@ -921,9 +921,7 @@ RootSM:
                             MDIconButton:
                                 id: skill_drop
                                 icon: "menu-down"
-                                on_release:
-                                    app._ensure_training_menus()
-                                    if app._menu_skill: app._menu_skill.open()
+                                on_release: app.open_training_menu("skill")
 
                         MDBoxLayout:
                             size_hint_y: None
@@ -940,9 +938,7 @@ RootSM:
                             MDIconButton:
                                 id: voc_drop
                                 icon: "menu-down"
-                                on_release:
-                                    app._ensure_training_menus()
-                                    if app._menu_vocation: app._menu_vocation.open()
+                                on_release: app.open_training_menu("voc")
 
                         MDBoxLayout:
                             size_hint_y: None
@@ -959,9 +955,7 @@ RootSM:
                             MDIconButton:
                                 id: weapon_drop
                                 icon: "menu-down"
-                                on_release:
-                                    app._ensure_training_menus()
-                                    if app._menu_weapon: app._menu_weapon.open()
+                                on_release: app.open_training_menu("weapon")
 
                 AppCard:
                     size_hint_y: None

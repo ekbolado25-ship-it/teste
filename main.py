@@ -4097,31 +4097,33 @@ class TibiaToolsApp(MDApp):
     # Training (Exercise)
     # --------------------
     def _menu_fix_position(self, menu):
-        """Tenta manter dropdown dentro da tela (KivyMD 1.2)."""
+        """Config padrão para dropdowns (KivyMD 1.2) sem estourar a tela.
+
+        Obs: o `hor_growth` é definido na hora de abrir o menu (open_training_menu),
+        porque depende do caller e da largura disponível.
+        """
         try:
-            # Se disponível, força crescimento horizontal para a esquerda.
-            menu.hor_growth = "left"
+            menu.ver_growth = 'down'
         except Exception:
             pass
         try:
-            menu.ver_growth = "down"
+            menu.position = 'auto'
         except Exception:
             pass
         try:
-            # Margem para evitar colar na borda.
-            menu.border_margin = dp(16)
+            menu.border_margin = dp(12)
         except Exception:
             pass
 
     def _ensure_training_menus(self):
         scr = self.root.get_screen("training")
 
-        # ⚠️ Em telas menores, ancorar o menu no botão da direita (menu-down)
-        # pode fazer o dropdown "sair" da tela. Para evitar isso, usamos o
-        # próprio campo de texto como caller (mais à esquerda).
-        skill_caller = scr.ids.get("skill_field") or scr.ids.get("skill_drop")
-        voc_caller = scr.ids.get("voc_field") or scr.ids.get("voc_drop")
-        weapon_caller = scr.ids.get("weapon_field") or scr.ids.get("weapon_drop")
+        # Dropdowns de treino: o caller padrão é o botão (menu-down) à direita,
+        # mas na hora de abrir usamos open_training_menu() que ajusta largura/posição
+        # e faz clamp para não sair da tela em Android.
+        skill_caller = scr.ids.get('skill_drop') or scr.ids.get('skill_field')
+        voc_caller = scr.ids.get('voc_drop') or scr.ids.get('voc_field')
+        weapon_caller = scr.ids.get('weapon_drop') or scr.ids.get('weapon_field')
 
         if self._menu_skill is None:
             skills = ["Sword", "Axe", "Club", "Distance", "Fist Fighting", "Shielding", "Magic Level"]
@@ -4157,6 +4159,156 @@ class TibiaToolsApp(MDApp):
                     position="auto",
                 )
                 self._menu_fix_position(self._menu_weapon)
+
+
+    def open_training_menu(self, which: str):
+        """Abre o dropdown da aba Treino e mantém dentro da tela.
+
+        Em alguns devices/versões do KivyMD, border_margin/hor_growth é ignorado
+        ou o cálculo de posição pode estourar a tela. Aqui fazemos:
+        - escolhe um caller estável (botão menu-down)
+        - ajusta largura para a largura da linha
+        - força hor_growth=left (abre para a esquerda do botão)
+        - clamp final de X/Y dentro do Window
+        """
+        try:
+            self._ensure_training_menus()
+            scr = self.root.get_screen('training')
+
+            which = (which or '').strip().lower()
+            if which in ('skill', 'skills'):
+                menu = self._menu_skill
+                field = scr.ids.get('skill_field')
+                arrow = scr.ids.get('skill_drop')
+            elif which in ('voc', 'vocation', 'vocacao', 'vocação'):
+                menu = self._menu_vocation
+                field = scr.ids.get('voc_field')
+                arrow = scr.ids.get('voc_drop')
+            elif which in ('weapon', 'wand', 'rod', 'arma'):
+                menu = self._menu_weapon
+                field = scr.ids.get('weapon_field')
+                arrow = scr.ids.get('weapon_drop')
+            else:
+                return
+
+            if not menu:
+                return
+
+            # Evita o TextField abrir seleção/clipboard (Select All/Paste) ao tocar no dropdown.
+            try:
+                if field is not None:
+                    field.focus = False
+            except Exception:
+                pass
+
+            # Preferimos o botão da direita como caller (posição mais estável).
+            caller = arrow or field
+            if not caller:
+                return
+
+            # Largura: usar a largura da linha (pai do field), se existir.
+            row = None
+            try:
+                if field is not None:
+                    row = field.parent
+            except Exception:
+                row = None
+
+            w = 0
+            try:
+                if row is not None:
+                    w = getattr(row, 'width', 0) or 0
+            except Exception:
+                w = 0
+            if w <= 1 and field is not None:
+                try:
+                    w = getattr(field, 'width', 0) or 0
+                except Exception:
+                    w = 0
+
+            # Fallback
+            if w <= 1:
+                w = dp(280)
+
+            # Clamp para não ultrapassar a tela
+            try:
+                root_w = getattr(self.root, 'width', 0) or 0
+                if root_w > 0:
+                    w = min(w, root_w - dp(24))
+            except Exception:
+                pass
+            w = max(dp(220), w)
+
+            # Altura máxima (evita ficar enorme por trás do bottom bar)
+            try:
+                root_h = getattr(self.root, 'height', 0) or 0
+                if root_h > 0:
+                    max_h = min(dp(360), max(dp(160), root_h - dp(260)))
+                else:
+                    max_h = dp(320)
+            except Exception:
+                max_h = dp(320)
+
+            # Config do menu
+            try:
+                menu.caller = caller
+                try:
+                    menu.width = w
+                except Exception:
+                    pass
+                try:
+                    menu.max_height = max_h
+                except Exception:
+                    pass
+
+                if hasattr(menu, 'border_margin'):
+                    menu.border_margin = dp(12)
+                if hasattr(menu, 'ver_growth'):
+                    menu.ver_growth = 'down'
+                if hasattr(menu, 'hor_growth'):
+                    # Botão está à direita → crescer para a esquerda evita sair da tela.
+                    menu.hor_growth = 'left'
+                if hasattr(menu, 'position'):
+                    menu.position = 'auto'
+            except Exception:
+                pass
+
+            menu.open()
+
+            # Clamp final (alguns Android ignoram border_margin/hor_growth).
+            try:
+                from kivy.core.window import Window
+
+                def _clamp_menu_pos(*_a):
+                    try:
+                        margin = dp(8)
+                        target = None
+                        if hasattr(menu, 'menu'):
+                            target = menu.menu
+                        elif hasattr(menu, '_menu'):
+                            target = menu._menu
+                        else:
+                            target = menu
+
+                        if not hasattr(target, 'x') or not hasattr(target, 'width'):
+                            return
+
+                        max_x = Window.width - target.width - margin
+                        if max_x >= margin:
+                            target.x = max(margin, min(target.x, max_x))
+
+                        if hasattr(target, 'y') and hasattr(target, 'height'):
+                            max_y = Window.height - target.height - margin
+                            if max_y >= margin:
+                                target.y = max(margin, min(target.y, max_y))
+                    except Exception:
+                        pass
+
+                Clock.schedule_once(_clamp_menu_pos, 0)
+            except Exception:
+                pass
+        except Exception:
+            pass
 
     def _set_training_skill(self, skill: str):
         scr = self.root.get_screen("training")
