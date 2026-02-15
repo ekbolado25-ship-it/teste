@@ -334,6 +334,13 @@ class TibiaToolsApp(MDApp):
             self._flush_cache_to_disk(force=True)
         except Exception:
             pass
+        # Garante que o monitor em segundo plano continue rodando mesmo com o app fechado.
+        # (Alguns usuários abrem e fecham rápido; isso assegura que o serviço seja iniciado no background.)
+        try:
+            Clock.schedule_once(lambda *_: self._safe_call(self._maybe_start_fav_monitor_service), 0)
+        except Exception:
+            pass
+
         return True
 
     def on_stop(self):
@@ -907,20 +914,14 @@ class TibiaToolsApp(MDApp):
     # Background service (Favorites monitor)
     # --------------------
     def _start_fav_monitor_service(self):
-        """Inicia o serviço em segundo plano (na prática: foreground service).
-
-        Ele é o responsável por enviar notificações de ONLINE / MORTE / LEVEL UP
-        mesmo com o app fechado.
-        """
+        """Inicia o serviço em segundo plano (foreground service) para monitorar favoritos."""
         if not self._is_android():
             return
 
-        # Em Android 13+ precisamos de POST_NOTIFICATIONS; sem isso o serviço pode
-        # falhar ao postar a notificação fixa do foreground.
+        # Em Android 13+ precisamos de POST_NOTIFICATIONS; sem isso o serviço pode falhar ao postar a notificação fixa do foreground.
         if self._android_sdk_int() >= 33:
             ok = self._ensure_post_notifications_permission(auto_open_settings=False)
             if not ok:
-                # Deixa o usuário decidir; não inicia para evitar crash/silêncio.
                 try:
                     self._prompt_enable_notifications_dialog()
                 except Exception:
@@ -928,25 +929,29 @@ class TibiaToolsApp(MDApp):
                 return
 
         try:
-            from android import AndroidService  # type: ignore
-
-            if self._bg_service is None:
-                # O texto aqui é só o "ticker"; o serviço em si chama startForeground com texto próprio.
-                self._bg_service = AndroidService("Tibia Tools", "Monitorando favoritos")
-
-            # Chamar start várias vezes é OK (idempotente na maioria dos devices)
-            self._bg_service.start("favwatch")
+            from jnius import autoclass  # type: ignore
+            ServiceFavwatch = autoclass('org.erick.tibiatools.ServiceFavwatch')
+            PythonActivity = autoclass('org.kivy.android.PythonActivity')
+            ctx = PythonActivity.mActivity
+            # Usa overload com (icon, title, text, arg) quando disponível; senão cai no start(ctx, arg).
+            try:
+                ServiceFavwatch.start(ctx, '', 'Tibia Tools', 'Monitorando favoritos', '')
+            except Exception:
+                ServiceFavwatch.start(ctx, '')
+            self._bg_service = True
         except Exception:
-            # último recurso: não quebrar o app
             _write_crash_log(traceback.format_exc())
 
     def _stop_fav_monitor_service(self):
         if not self._is_android():
             return
         try:
-            if self._bg_service is not None:
-                self._bg_service.stop()
-                self._bg_service = None
+            from jnius import autoclass  # type: ignore
+            ServiceFavwatch = autoclass('org.erick.tibiatools.ServiceFavwatch')
+            PythonActivity = autoclass('org.kivy.android.PythonActivity')
+            ctx = PythonActivity.mActivity
+            ServiceFavwatch.stop(ctx)
+            self._bg_service = None
         except Exception:
             _write_crash_log(traceback.format_exc())
 
@@ -975,6 +980,7 @@ class TibiaToolsApp(MDApp):
             notify_online = bool(scr.ids.set_bg_notify_online.active)
             notify_level = bool(scr.ids.set_bg_notify_level.active)
             notify_death = bool(scr.ids.set_bg_notify_death.active)
+            autostart = bool(scr.ids.set_bg_autostart.active) if 'set_bg_autostart' in scr.ids else True
             try:
                 interval = int((scr.ids.set_bg_interval.text or "60").strip())
             except Exception:
@@ -991,6 +997,7 @@ class TibiaToolsApp(MDApp):
             st["notify_fav_online"] = notify_online
             st["notify_fav_level"] = notify_level
             st["notify_fav_death"] = notify_death
+            st["autostart_on_boot"] = autostart
             st["interval_seconds"] = max(20, min(600, int(interval)))
             fav_state.save_state(self.data_dir, st)
         except Exception:
@@ -1767,6 +1774,7 @@ class TibiaToolsApp(MDApp):
             scr.ids.set_bg_notify_level.active = bool(st.get("notify_fav_level", True))
             scr.ids.set_bg_notify_death.active = bool(st.get("notify_fav_death", True))
             scr.ids.set_bg_interval.text = str(int(st.get("interval_seconds", 60) or 60))
+            scr.ids.set_bg_autostart.active = bool(st.get("autostart_on_boot", True))
         except Exception:
             pass
 
@@ -4097,33 +4105,97 @@ class TibiaToolsApp(MDApp):
     # Training (Exercise)
     # --------------------
     def _menu_fix_position(self, menu):
-        """Config padrão para dropdowns (KivyMD 1.2) sem estourar a tela.
+        """Tenta manter dropdown dentro da tela (KivyMD 1.2)."""
+        try:
+            # Se disponível, força crescimento horizontal para a esquerda.
+            menu.hor_growth = "left"
+        except Exception:
+            pass
+        try:
+            menu.ver_growth = "down"
+        except Exception:
+            pass
+        try:
+            # Margem para evitar colar na borda.
+            menu.border_margin = dp(16)
+        except Exception:
+            pass
 
-        Obs: o `hor_growth` é definido na hora de abrir o menu (open_training_menu),
-        porque depende do caller e da largura disponível.
-        """
+    def _clamp_dropdown_to_window(self, menu, _tries: int = 3):
+        """Garante que o dropdown não fique fora da tela (extra p/ Android)."""
         try:
-            menu.ver_growth = 'down'
+            from kivy.core.window import Window
+        except Exception:
+            return
+
+        try:
+            w = float(getattr(menu, "width", 0) or 0)
+            h = float(getattr(menu, "height", 0) or 0)
+        except Exception:
+            return
+
+        # Em alguns devices o size ainda não está pronto no mesmo frame.
+        if w <= 0 or h <= 0:
+            if _tries > 0:
+                Clock.schedule_once(lambda *_: self._clamp_dropdown_to_window(menu, _tries=_tries - 1), 0)
+            return
+
+        m = dp(8)
+        try:
+            menu.x = max(m, min(menu.x, Window.width - w - m))
         except Exception:
             pass
         try:
-            menu.position = 'auto'
+            menu.y = max(m, min(menu.y, Window.height - h - m))
         except Exception:
             pass
-        try:
-            menu.border_margin = dp(12)
-        except Exception:
-            pass
+
+    def training_open_menu(self, which: str):
+        """Abre menus do Treino sem deixar o menu/selection sair da tela."""
+        scr = self.root.get_screen("training")
+        self._ensure_training_menus()
+
+        # Evita o menu de contexto do Android (Select All / Paste) em campos readonly.
+        for _id in (
+            "skill_field",
+            "voc_field",
+            "weapon_field",
+            "from_level",
+            "percent_left",
+            "to_level",
+            "loyalty",
+        ):
+            w = scr.ids.get(_id)
+            if w is not None:
+                try:
+                    w.focus = False
+                except Exception:
+                    pass
+
+        menu = None
+        if which == "skill":
+            menu = self._menu_skill
+        elif which in ("voc", "vocation"):
+            menu = self._menu_vocation
+        elif which == "weapon":
+            menu = self._menu_weapon
+
+        if menu is None:
+            return
+
+        menu.open()
+        # Ajusta posição no próximo frame (quando o tamanho do menu já foi calculado).
+        Clock.schedule_once(lambda *_: self._clamp_dropdown_to_window(menu), 0)
 
     def _ensure_training_menus(self):
         scr = self.root.get_screen("training")
 
-        # Dropdowns de treino: o caller padrão é o botão (menu-down) à direita,
-        # mas na hora de abrir usamos open_training_menu() que ajusta largura/posição
-        # e faz clamp para não sair da tela em Android.
-        skill_caller = scr.ids.get('skill_drop') or scr.ids.get('skill_field')
-        voc_caller = scr.ids.get('voc_drop') or scr.ids.get('voc_field')
-        weapon_caller = scr.ids.get('weapon_drop') or scr.ids.get('weapon_field')
+        # ⚠️ Em telas menores, o dropdown pode "vazar" para fora da tela.
+        # Aqui o melhor caller é o botão de seta (menu-down) + hor_growth="left".
+        # Assim o menu cresce para a esquerda e fica visível.
+        skill_caller = scr.ids.get("skill_drop") or scr.ids.get("skill_field")
+        voc_caller = scr.ids.get("voc_drop") or scr.ids.get("voc_field")
+        weapon_caller = scr.ids.get("weapon_drop") or scr.ids.get("weapon_field")
 
         if self._menu_skill is None:
             skills = ["Sword", "Axe", "Club", "Distance", "Fist Fighting", "Shielding", "Magic Level"]
@@ -4159,156 +4231,6 @@ class TibiaToolsApp(MDApp):
                     position="auto",
                 )
                 self._menu_fix_position(self._menu_weapon)
-
-
-    def open_training_menu(self, which: str):
-        """Abre o dropdown da aba Treino e mantém dentro da tela.
-
-        Em alguns devices/versões do KivyMD, border_margin/hor_growth é ignorado
-        ou o cálculo de posição pode estourar a tela. Aqui fazemos:
-        - escolhe um caller estável (botão menu-down)
-        - ajusta largura para a largura da linha
-        - força hor_growth=left (abre para a esquerda do botão)
-        - clamp final de X/Y dentro do Window
-        """
-        try:
-            self._ensure_training_menus()
-            scr = self.root.get_screen('training')
-
-            which = (which or '').strip().lower()
-            if which in ('skill', 'skills'):
-                menu = self._menu_skill
-                field = scr.ids.get('skill_field')
-                arrow = scr.ids.get('skill_drop')
-            elif which in ('voc', 'vocation', 'vocacao', 'vocação'):
-                menu = self._menu_vocation
-                field = scr.ids.get('voc_field')
-                arrow = scr.ids.get('voc_drop')
-            elif which in ('weapon', 'wand', 'rod', 'arma'):
-                menu = self._menu_weapon
-                field = scr.ids.get('weapon_field')
-                arrow = scr.ids.get('weapon_drop')
-            else:
-                return
-
-            if not menu:
-                return
-
-            # Evita o TextField abrir seleção/clipboard (Select All/Paste) ao tocar no dropdown.
-            try:
-                if field is not None:
-                    field.focus = False
-            except Exception:
-                pass
-
-            # Preferimos o botão da direita como caller (posição mais estável).
-            caller = arrow or field
-            if not caller:
-                return
-
-            # Largura: usar a largura da linha (pai do field), se existir.
-            row = None
-            try:
-                if field is not None:
-                    row = field.parent
-            except Exception:
-                row = None
-
-            w = 0
-            try:
-                if row is not None:
-                    w = getattr(row, 'width', 0) or 0
-            except Exception:
-                w = 0
-            if w <= 1 and field is not None:
-                try:
-                    w = getattr(field, 'width', 0) or 0
-                except Exception:
-                    w = 0
-
-            # Fallback
-            if w <= 1:
-                w = dp(280)
-
-            # Clamp para não ultrapassar a tela
-            try:
-                root_w = getattr(self.root, 'width', 0) or 0
-                if root_w > 0:
-                    w = min(w, root_w - dp(24))
-            except Exception:
-                pass
-            w = max(dp(220), w)
-
-            # Altura máxima (evita ficar enorme por trás do bottom bar)
-            try:
-                root_h = getattr(self.root, 'height', 0) or 0
-                if root_h > 0:
-                    max_h = min(dp(360), max(dp(160), root_h - dp(260)))
-                else:
-                    max_h = dp(320)
-            except Exception:
-                max_h = dp(320)
-
-            # Config do menu
-            try:
-                menu.caller = caller
-                try:
-                    menu.width = w
-                except Exception:
-                    pass
-                try:
-                    menu.max_height = max_h
-                except Exception:
-                    pass
-
-                if hasattr(menu, 'border_margin'):
-                    menu.border_margin = dp(12)
-                if hasattr(menu, 'ver_growth'):
-                    menu.ver_growth = 'down'
-                if hasattr(menu, 'hor_growth'):
-                    # Botão está à direita → crescer para a esquerda evita sair da tela.
-                    menu.hor_growth = 'left'
-                if hasattr(menu, 'position'):
-                    menu.position = 'auto'
-            except Exception:
-                pass
-
-            menu.open()
-
-            # Clamp final (alguns Android ignoram border_margin/hor_growth).
-            try:
-                from kivy.core.window import Window
-
-                def _clamp_menu_pos(*_a):
-                    try:
-                        margin = dp(8)
-                        target = None
-                        if hasattr(menu, 'menu'):
-                            target = menu.menu
-                        elif hasattr(menu, '_menu'):
-                            target = menu._menu
-                        else:
-                            target = menu
-
-                        if not hasattr(target, 'x') or not hasattr(target, 'width'):
-                            return
-
-                        max_x = Window.width - target.width - margin
-                        if max_x >= margin:
-                            target.x = max(margin, min(target.x, max_x))
-
-                        if hasattr(target, 'y') and hasattr(target, 'height'):
-                            max_y = Window.height - target.height - margin
-                            if max_y >= margin:
-                                target.y = max(margin, min(target.y, max_y))
-                    except Exception:
-                        pass
-
-                Clock.schedule_once(_clamp_menu_pos, 0)
-            except Exception:
-                pass
-        except Exception:
-            pass
 
     def _set_training_skill(self, skill: str):
         scr = self.root.get_screen("training")

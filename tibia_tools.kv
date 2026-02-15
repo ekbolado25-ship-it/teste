@@ -921,7 +921,7 @@ RootSM:
                             MDIconButton:
                                 id: skill_drop
                                 icon: "menu-down"
-                                on_release: app.open_training_menu("skill")
+                                on_release: app.training_open_menu("skill")
 
                         MDBoxLayout:
                             size_hint_y: None
@@ -938,7 +938,7 @@ RootSM:
                             MDIconButton:
                                 id: voc_drop
                                 icon: "menu-down"
-                                on_release: app.open_training_menu("voc")
+                                on_release: app.training_open_menu("voc")
 
                         MDBoxLayout:
                             size_hint_y: None
@@ -955,7 +955,7 @@ RootSM:
                             MDIconButton:
                                 id: weapon_drop
                                 icon: "menu-down"
-                                on_release: app.open_training_menu("weapon")
+                                on_release: app.training_open_menu("weapon")
 
                 AppCard:
                     size_hint_y: None
@@ -1449,6 +1449,19 @@ RootSM:
 
                             MDSwitch:
                                 id: set_bg_monitor
+                                active: True
+
+                        MDBoxLayout:
+                            size_hint_y: None
+                            height: dp(48)
+                            spacing: dp(10)
+
+                            MDLabel:
+                                text: "Iniciar automaticamente ao ligar"
+                                valign: "middle"
+
+                            MDSwitch:
+                                id: set_bg_autostart
                                 active: True
 
                         MDBoxLayout:

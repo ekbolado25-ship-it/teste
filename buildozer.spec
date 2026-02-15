@@ -31,7 +31,7 @@ source.dir = .
 # Background service (monitor favorites)
 # Roda como serviço em primeiro plano (foreground) para enviar notificações
 # mesmo com o app fechado.
-services = favwatch:service/main.py
+services = favwatch:service/main.py:foreground
 
 # (list) Source files to include (let empty to include all the files)
 source.include_exts = py,kv,png,jpg,jpeg,txt,json,ttf,atlas,ico
@@ -66,7 +66,9 @@ p4a.branch = master
 # p4a.commit = <optional specific commit SHA>
 
 # Permissões mínimas (INTERNET é essencial se você busca dados online)
-android.permissions = INTERNET, POST_NOTIFICATIONS, FOREGROUND_SERVICE, WAKE_LOCK
+android.permissions = INTERNET, POST_NOTIFICATIONS, FOREGROUND_SERVICE, WAKE_LOCK, RECEIVE_BOOT_COMPLETED
+android.add_src = android_src
+android.extra_manifest_application_arguments = android/extra_manifest_application_arguments.xml
 # Tipo de foreground service (ajuda em Androids mais novos/OEMs). Como o serviço
 # faz polling de rede, dataSync é o mais apropriado.
 android.foreground_service_type = dataSync
