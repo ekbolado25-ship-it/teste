@@ -206,6 +206,24 @@ def _android_start_foreground(title: str, text: str, notif_id: int = 1001):
         _append_crash_log(f"foreground notify fail: {e}")
 
 
+
+def _android_get_service():
+    """Retorna a instância do Android Service (PythonService.mService) ou None."""
+    try:
+        from jnius import autoclass
+        PythonService = autoclass("org.kivy.android.PythonService")
+        return PythonService.mService
+    except Exception:
+        return None
+
+def _android_stop_self():
+    try:
+        svc = _android_get_service()
+        if svc is not None:
+            svc.stopSelf()
+    except Exception:
+        pass
+
 def _lower_name(n: str) -> str:
     return str(n or "").strip().lower()
 
@@ -237,6 +255,12 @@ def main():
     last_world_online_cache: Dict[str, Any] = {}  # world -> set(lower names)
     last_fg_text = None
 
+    # Garante startForeground rápido (exigência do Android quando iniciado como foreground service).
+    try:
+        _android_start_foreground('Tibia Tools', 'Inicializando monitor...', notif_id=1001)
+    except Exception:
+        pass
+
     while True:
         try:
             data_dir = state_mod.default_data_dir_android()
@@ -247,8 +271,15 @@ def main():
             interval = _to_int(st.get("interval_seconds")) or 60
 
             if not monitoring or not favorites:
-                time.sleep(15)
-                continue
+                try:
+                    _android_start_foreground('Tibia Tools', 'Monitor desativado/sem favoritos — serviço parado', notif_id=1001)
+                except Exception:
+                    pass
+                try:
+                    _android_stop_self()
+                except Exception:
+                    pass
+                return
 
             # força notificação do serviço com texto visível (evita notificação em branco)
             try:
