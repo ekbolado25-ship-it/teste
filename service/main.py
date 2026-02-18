@@ -4,6 +4,7 @@ import time
 import json
 import traceback
 import importlib
+from datetime import datetime
 from typing import Any, Dict, Optional, Tuple
 
 def _try_get_storage_dir() -> str:
@@ -268,7 +269,7 @@ def main():
 
             favorites = st.get("favorites", [])
             monitoring = bool(st.get("monitoring", False))
-            interval = _to_int(st.get("interval_seconds")) or 60
+            interval = _to_int(st.get("interval_seconds")) or 30
 
             if not monitoring or not favorites:
                 try:
@@ -328,6 +329,7 @@ def main():
             changed = False
             for name in favs:
                 ln = _lower_name(name)
+                now_iso = datetime.utcnow().isoformat()
                 snap = tibia_mod.fetch_character_snapshot(name, timeout=12)
 
                 # prefer world-based online resolution
@@ -348,6 +350,37 @@ def main():
                     death_time = None
 
                 prev = last.get(ln) if isinstance(last.get(ln), dict) else None
+                prev_online = None
+                prev_offline_since = None
+                prev_last_seen_online = None
+                try:
+                    if isinstance(prev, dict):
+                        prev_online = bool(prev.get("online", False))
+                        prev_offline_since = prev.get("offline_since_iso")
+                        prev_last_seen_online = prev.get("last_seen_online_iso")
+                except Exception:
+                    prev_online = None
+                    prev_offline_since = None
+                    prev_last_seen_online = None
+
+                # ONLINE/OFFLINE duration tracking
+                offline_since_iso = None
+                last_seen_online_iso = None
+                try:
+                    if online:
+                        # sempre que vemos online, limpamos o offline_since
+                        last_seen_online_iso = now_iso
+                        offline_since_iso = None
+                    else:
+                        # só define offline_since no momento exato em que detectamos a transição Online -> Offline
+                        if prev_online is True:
+                            offline_since_iso = now_iso
+                        else:
+                            offline_since_iso = prev_offline_since if isinstance(prev_offline_since, str) else None
+                        last_seen_online_iso = prev_last_seen_online if isinstance(prev_last_seen_online, str) else None
+                except Exception:
+                    offline_since_iso = None
+                    last_seen_online_iso = None
 
                 # Notifications only if we already have previous state (avoid spam on first run)
                 if isinstance(prev, dict):
@@ -397,6 +430,12 @@ def main():
                     "online": bool(online),
                     "level": level,
                     "death_time": death_time,
+                    # precisão: quando ficou OFF (logout detectado)
+                    "offline_since_iso": offline_since_iso,
+                    # utilitário: último instante em que vimos ONLINE
+                    "last_seen_online_iso": last_seen_online_iso,
+                    # utilitário: último check realizado pelo serviço
+                    "last_checked_iso": now_iso,
                 }
                 changed = True
 

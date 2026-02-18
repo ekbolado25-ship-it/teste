@@ -12,7 +12,8 @@ def _default_state() -> Dict[str, Any]:
     return {
         "favorites": [],
         # background monitor
-        "interval_seconds": 60,
+        # default 30s: melhora a precisão do ONLINE/OFFLINE e do tempo "há..."
+        "interval_seconds": 30,
         "monitoring": True,
         "notify_fav_online": True,
         "notify_fav_death": True,
